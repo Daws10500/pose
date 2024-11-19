@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: strength_engine_db
+    environment:
+      POSTGRES_DB: strength_engine
+      POSTGRES_USER: strength_user
+      POSTGRES_PASSWORD: strength_password  # Change this in production
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./docker/postgres/data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    command: postgres -c shared_preload_libraries=timescaledb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strength_user -d strength_engine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: strength_engine_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./docker/redis:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: strength_engine_api
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./backend:/app
+    environment:
+      FLASK_APP: app
+      FLASK_ENV: development
+      FLASK_RUN_PORT: 5001
+      DATABASE_URL: postgresql://strength_user:strength_password@timescaledb:5432/strength_engine
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: your-secret-key  # Change this in production
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: flask run --host=0.0.0.0
+
+volumes:
+  postgres_data:
+  redis_data:
